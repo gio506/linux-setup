@@ -6,18 +6,39 @@ on:
   pull_request:
 
 jobs:
-  validate:
+  syntax:
+    name: 1) Syntax check
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Syntax check
+      - uses: actions/checkout@v4
+      - name: Validate bash syntax
         run: bash -n beginner_linux_automation.sh
 
-      - name: Help output check
+  help:
+    name: 2) Help output check
+    runs-on: ubuntu-latest
+    needs: [syntax]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check --help output
         run: ./beginner_linux_automation.sh --help
 
-      - name: Pipeline mode dry-run check
-        run: SKIP_INTERNET_CHECK=1 PIPELINE_MODE=1 ./beginner_linux_automation.sh
+  pipeline-smoke:
+    name: 3) Pipeline smoke run
+    runs-on: ubuntu-latest
+    needs: [help]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run in pipeline mode
+        run: PIPELINE_MODE=1 ./beginner_linux_automation.sh
+
+  stage-toggles:
+    name: 4) Stage toggle checks
+    runs-on: ubuntu-latest
+    needs: [pipeline-smoke]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skip update and full stage
+        run: SKIP_INTERNET_CHECK=1 SKIP_PROMPTS=1 DRY_RUN=1 RUN_UPDATE=0 RUN_FULL=0 ./beginner_linux_automation.sh
+      - name: Run with all stages dry-run
+        run: SKIP_INTERNET_CHECK=1 SKIP_PROMPTS=1 DRY_RUN=1 RUN_UPDATE=1 RUN_MINIMAL=1 RUN_FULL=1 SHOW_SYSTEM_INFO=0 ./beginner_linux_automation.sh
