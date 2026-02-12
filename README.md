@@ -1,69 +1,64 @@
 # Linux Setup Beginner Bash Automation
 
-Simple automation for junior DevOps practice.
+Simple script for junior DevOps.
 
-## Short script details
-Script: `beginner_linux_automation.sh`
+## What this script does (easy view)
+1. Check internet with ping.
+2. Detect Linux distro + package manager.
+3. Update system.
+4. Install minimal packages.
+5. Install full packages (includes Python/dev tools).
+6. Show system info.
+7. Print short success summary (what was updated/installed).
 
-- Stage 1: check internet with ping.
-- Stage 2: detect distro/version + ask update/upgrade/full-upgrade.
-- Stage 3: ask and install minimal tools.
-- Stage 4: ask and install full tools **including Python**.
-- Stage 5: ask and print CPU/RAM/disk info.
+If ping fails, script stops.
 
-If internet check fails, script stops and prints a clear error.
+## Where it asks `y/n`
+Prompts now appear **after each completed stage**:
+- After ping test passed.
+- After update stage.
+- After minimal package stage.
+- After full package stage.
 
-## Quick checklist (what happens when you run it)
-- [ ] Start script and print basic info.
-- [ ] Stage 1: Check internet (ping).
-  - If failed -> stop all next stages.
-- [ ] Stage 2: Detect distro/version and package manager.
-- [ ] Stage 2A: Ask to run update/upgrade/full-upgrade.
-- [ ] Stage 3: Ask to install minimal packages (`curl`, `wget`, `git`, `vim`, `htop`).
-- [ ] Stage 4: Ask to install full packages (build + utility tools + Python).
-  - Ubuntu/Debian: `build-essential`, `net-tools`, `unzip`, `zip`, `tmux`, `tree`, `jq`, `python3`, `python3-pip`, `python3-venv`
-  - RHEL/Fedora: `Development Tools` group, `net-tools`, `unzip`, `zip`, `tmux`, `tree`, `jq`, `python3`, `python3-pip`
-  - Arch: `base-devel`, `net-tools`, `unzip`, `zip`, `tmux`, `tree`, `jq`, `python`, `python-pip`
-  - Note: this is heavier than minimal install and can take more time.
-- [ ] Stage 5: Ask to show system specs (CPU/RAM/disk).
-- [ ] Finish and print completion message.
+So flow is: run stage -> ask to continue -> next stage.
 
-## What is **update** vs **install**?
-- **Update/Upgrade**: refresh package metadata + upgrade already-installed software.
-- **Install**: add new packages/tools not currently installed.
+## Packages
+### Minimal package stage
+- Ubuntu/Debian: `curl wget git vim htop ca-certificates gnupg lsb-release software-properties-common rsync unzip`
+- RHEL/Fedora: `curl wget git vim htop ca-certificates gnupg2 redhat-lsb-core rsync unzip`
+- Arch: `curl wget git vim htop ca-certificates gnupg lsb-release rsync unzip`
 
-## Pipeline (GitHub Actions)
-A ready workflow is included:
-- `.github/workflows/bash-script-check.yml`
+### Full package stage
+- Ubuntu/Debian: `build-essential net-tools zip tmux tree jq python3 python3-pip python3-venv python3-dev gcc make cmake pkg-config`
+- RHEL/Fedora: `Development Tools` + `net-tools zip tmux tree jq python3 python3-pip python3-devel gcc make cmake pkgconf-pkg-config`
+- Arch: `base-devel net-tools zip tmux tree jq python python-pip cmake pkgconf`
 
-It checks:
-1. Bash syntax (`bash -n`)
-2. Help output
-3. Pipeline-mode execution in safe dry-run
-
-Workflow command used for run stage:
-```bash
-SKIP_INTERNET_CHECK=1 PIPELINE_MODE=1 ./beginner_linux_automation.sh
-```
-
-Why `SKIP_INTERNET_CHECK=1`?
-- CI environments can block external ping.
-- This lets pipeline test all script stages logic safely.
-
-## Run locally
+## Run
 ```bash
 chmod +x beginner_linux_automation.sh
 ./beginner_linux_automation.sh
 ```
 
-## Help
-```bash
-./beginner_linux_automation.sh --help
-```
+## Pipeline / CI
+GitHub Actions file: `.github/workflows/bash-script-check.yml`
 
-## Important options
-- `AUTO_YES=1` -> force yes for all questions.
-- `SKIP_PROMPTS=1` -> use stage defaults (y/n) without asking.
-- `DRY_RUN=1` -> print commands only.
-- `PIPELINE_MODE=1` -> `SKIP_PROMPTS=1` + `DRY_RUN=1`.
-- `SKIP_INTERNET_CHECK=1` -> skip ping stage (good for CI).
+Pipeline has separate jobs:
+1. syntax check
+2. help output check
+3. pipeline smoke run
+4. stage-toggle checks
+
+## Useful env options
+- `AUTO_YES=1` -> always continue at checkpoints.
+- `SKIP_PROMPTS=1` -> no questions, use defaults.
+- `DRY_RUN=1` -> print commands only, do not execute.
+- `PIPELINE_MODE=1` -> CI-safe: skip prompts + dry-run + skip full/system info.
+- `RUN_UPDATE=0` -> disable update stage.
+- `RUN_MINIMAL=0` -> disable minimal stage.
+- `RUN_FULL=0` -> disable full stage.
+- `SHOW_SYSTEM_INFO=0` -> disable final system info.
+- `SKIP_INTERNET_CHECK=1` -> skip ping stage (CI use).
+
+## Short meaning
+- **Update** = refresh + upgrade existing software.
+- **Install** = add software packages that may be missing.

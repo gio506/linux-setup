@@ -1,42 +1,53 @@
 #!/usr/bin/env bash
 # Beginner-friendly Linux setup automation
-# Stages:
-# 1) Internet check
-# 2) Detect distro/version and ask for update actions
+# Flow:
+# 1) Ping check
+# 2) Update system
 # 3) Minimal packages
 # 4) Full packages
-# 5) System specs and disk check
+# 5) System info + short success summary
 
 set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
-AUTO_YES="${AUTO_YES:-0}"         # AUTO_YES=1 -> answer yes to all prompts
-SKIP_PROMPTS="${SKIP_PROMPTS:-0}" # SKIP_PROMPTS=1 -> no prompt, use defaults
-DRY_RUN="${DRY_RUN:-0}"            # DRY_RUN=1 -> print commands, don't execute
-PIPELINE_MODE="${PIPELINE_MODE:-0}" # PIPELINE_MODE=1 -> safe defaults for CI
-SKIP_INTERNET_CHECK="${SKIP_INTERNET_CHECK:-0}" # SKIP_INTERNET_CHECK=1 -> skip ping stage
-INTERNET_CHECK_HOST="${INTERNET_CHECK_HOST:-8.8.8.8}" # host used in ping test
+AUTO_YES="${AUTO_YES:-0}"               # AUTO_YES=1 -> answer yes on all checkpoints
+SKIP_PROMPTS="${SKIP_PROMPTS:-0}"       # SKIP_PROMPTS=1 -> no checkpoints, use defaults
+DRY_RUN="${DRY_RUN:-0}"                 # DRY_RUN=1 -> print commands only
+PIPELINE_MODE="${PIPELINE_MODE:-0}"     # PIPELINE_MODE=1 -> CI-safe defaults
+SKIP_INTERNET_CHECK="${SKIP_INTERNET_CHECK:-0}"
+INTERNET_CHECK_HOST="${INTERNET_CHECK_HOST:-8.8.8.8}"
+
+# Stage toggles (useful for CI)
+RUN_UPDATE="${RUN_UPDATE:-1}"
+RUN_MINIMAL="${RUN_MINIMAL:-1}"
+RUN_FULL="${RUN_FULL:-1}"
+SHOW_SYSTEM_INFO="${SHOW_SYSTEM_INFO:-1}"
+
+# Summary arrays
+UPDATED_ACTIONS=()
+MINIMAL_INSTALLED=()
+FULL_INSTALLED=()
 
 usage() {
   cat <<USAGE
 Usage:
   ./$SCRIPT_NAME
 
-Environment variables:
-  AUTO_YES=1            Answer yes to all stages (non-interactive)
-  SKIP_PROMPTS=1        Skip questions and use default stage values
-  DRY_RUN=1             Print commands only (good for tests)
-  PIPELINE_MODE=1       Pipeline-safe mode: SKIP_PROMPTS=1 + DRY_RUN=1
-  SKIP_INTERNET_CHECK=1 Skip ping stage (useful in CI without external network)
-  INTERNET_CHECK_HOST   Ping host (default: 8.8.8.8)
+Main environment variables:
+  AUTO_YES=1            Answer yes on all checkpoints
+  SKIP_PROMPTS=1        Skip checkpoints and use default answer
+  DRY_RUN=1             Print commands only
+  PIPELINE_MODE=1       Safe CI mode (SKIP_PROMPTS=1 + DRY_RUN=1 + skip full stage)
+  SKIP_INTERNET_CHECK=1 Skip ping stage in CI
 
-Quick meaning:
-  update = refresh package index + upgrade existing software
-  install = add packages/tools that may not exist yet
+Optional stage toggles:
+  RUN_UPDATE=0          Skip update stage
+  RUN_MINIMAL=0         Skip minimal packages stage
+  RUN_FULL=0            Skip full packages stage
+  SHOW_SYSTEM_INFO=0    Skip system information stage
 USAGE
 }
 
-# ---------- Small helper functions ----------
 log() { printf '[INFO] %s\n' "$*"; }
 warn() { printf '[WARN] %s\n' "$*"; }
 err() { printf '[ERROR] %s\n' "$*"; }
@@ -50,20 +61,21 @@ run_cmd() {
   fi
 }
 
-ask_yes_no() {
-  # ask_yes_no "Question text" "default" -> returns 0=yes, 1=no
+checkpoint_continue() {
+  # checkpoint_continue "message" "default(y/n)"
   local question="$1"
-  local default="${2:-n}"
+  local default="${2:-y}"
   local answer=""
 
   if [[ "$AUTO_YES" == "1" ]]; then
-    log "$question [auto-yes enabled -> y]"
+    log "$question [auto-yes -> y]"
     return 0
   fi
 
   if [[ "$SKIP_PROMPTS" == "1" ]]; then
     log "$question [prompts skipped -> default=$default]"
-    [[ "$default" == "y" ]] && return 0 || return 1
+    [[ "$default" == "y" ]]
+    return
   fi
 
   while true; do
@@ -77,34 +89,11 @@ ask_yes_no() {
   done
 }
 
-# ---------- Stage 1: Connection check ----------
-check_connection() {
-  line
-  log "Stage 1: Checking internet connection"
-
-  if [[ "$SKIP_INTERNET_CHECK" == "1" ]]; then
-    warn "Internet check skipped (SKIP_INTERNET_CHECK=1)."
-    return 0
-  fi
-
-  if ping -c 2 -W 2 "$INTERNET_CHECK_HOST" >/dev/null 2>&1; then
-    log "Internet is reachable via $INTERNET_CHECK_HOST. Continuing with setup."
-    return 0
-  fi
-
-  err "Something went wrong with internet. Skipping all stages."
-  return 1
-}
-
-# ---------- Detect distro/package manager ----------
 DISTRO_ID="unknown"
 DISTRO_VERSION="unknown"
-PKG_MANAGER=""
+PKG_MANAGER="unsupported"
 
 detect_linux() {
-  line
-  log "Stage 2: Detecting Linux distribution/version"
-
   if [[ -f /etc/os-release ]]; then
     # shellcheck disable=SC1091
     source /etc/os-release
@@ -119,93 +108,120 @@ detect_linux() {
     *) PKG_MANAGER="unsupported" ;;
   esac
 
-  log "Detected distro: $DISTRO_ID"
-  log "Detected version: $DISTRO_VERSION"
-  log "Detected package manager: $PKG_MANAGER"
+  line
+  log "Detected distro: $DISTRO_ID $DISTRO_VERSION"
+  log "Package manager: $PKG_MANAGER"
+}
+
+check_connection() {
+  line
+  log "Stage 1: Internet check"
+
+  if [[ "$SKIP_INTERNET_CHECK" == "1" ]]; then
+    warn "Internet check skipped."
+    return 0
+  fi
+
+  if ping -c 2 -W 2 "$INTERNET_CHECK_HOST" >/dev/null 2>&1; then
+    log "Internet is reachable."
+    return 0
+  fi
+
+  err "Internet check failed. Stopping all stages."
+  return 1
 }
 
 run_updates() {
   line
-  log "Stage 2A: Update/upgrade/full-upgrade"
-  log "Short note: update/upgrade refreshes and updates existing software."
+  log "Stage 2: Update system"
 
-  if ! ask_yes_no "Do you want to start update/upgrade/full-upgrade?" "n"; then
-    log "Skipped update stage by user choice."
+  if [[ "$RUN_UPDATE" != "1" ]]; then
+    warn "Update stage disabled (RUN_UPDATE=0)."
     return 0
   fi
 
   case "$PKG_MANAGER" in
     apt)
-      run_cmd "sudo apt update"
-      run_cmd "sudo apt upgrade -y"
-      run_cmd "sudo apt full-upgrade -y"
+      run_cmd "sudo apt update"; UPDATED_ACTIONS+=("apt update")
+      run_cmd "sudo apt upgrade -y"; UPDATED_ACTIONS+=("apt upgrade")
+      run_cmd "sudo apt full-upgrade -y"; UPDATED_ACTIONS+=("apt full-upgrade")
       ;;
     dnf)
-      run_cmd "sudo dnf check-update || true"
-      run_cmd "sudo dnf upgrade --refresh -y"
+      run_cmd "sudo dnf check-update || true"; UPDATED_ACTIONS+=("dnf check-update")
+      run_cmd "sudo dnf upgrade --refresh -y"; UPDATED_ACTIONS+=("dnf upgrade --refresh")
       ;;
     pacman)
-      run_cmd "sudo pacman -Syu --noconfirm"
+      run_cmd "sudo pacman -Syu --noconfirm"; UPDATED_ACTIONS+=("pacman -Syu")
       ;;
-    *) warn "Unsupported distro for auto update commands." ;;
+    *) warn "Unsupported distro for update stage." ;;
   esac
 }
 
 install_minimal_packages() {
   line
   log "Stage 3: Install minimal packages"
-  log "Short note: install adds new tools (if missing)."
 
-  if ! ask_yes_no "Install minimal package set (curl, wget, git, vim, htop)?" "y"; then
-    log "Skipped minimal package stage."
-    return 0
-  fi
-
-  case "$PKG_MANAGER" in
-    apt) run_cmd "sudo apt install -y curl wget git vim htop" ;;
-    dnf) run_cmd "sudo dnf install -y curl wget git vim htop" ;;
-    pacman) run_cmd "sudo pacman -S --noconfirm curl wget git vim htop" ;;
-    *) warn "Unsupported distro for package installation." ;;
-  esac
-}
-
-install_full_packages() {
-  line
-  log "Stage 4: Install full package set"
-  log "Includes developer tools and Python runtime/pip for automation scripts."
-
-  if ! ask_yes_no "Install full package set (build tools + utils + Python)?" "n"; then
-    log "Skipped full package stage."
+  if [[ "$RUN_MINIMAL" != "1" ]]; then
+    warn "Minimal stage disabled (RUN_MINIMAL=0)."
     return 0
   fi
 
   case "$PKG_MANAGER" in
     apt)
-      run_cmd "sudo apt install -y build-essential net-tools unzip zip tmux tree jq python3 python3-pip python3-venv"
+      run_cmd "sudo apt install -y curl wget git vim htop ca-certificates gnupg lsb-release software-properties-common rsync unzip"
+      MINIMAL_INSTALLED+=(curl wget git vim htop ca-certificates gnupg lsb-release software-properties-common rsync unzip)
+      ;;
+    dnf)
+      run_cmd "sudo dnf install -y curl wget git vim htop ca-certificates gnupg2 redhat-lsb-core rsync unzip"
+      MINIMAL_INSTALLED+=(curl wget git vim htop ca-certificates gnupg2 redhat-lsb-core rsync unzip)
+      ;;
+    pacman)
+      run_cmd "sudo pacman -S --noconfirm curl wget git vim htop ca-certificates gnupg lsb-release rsync unzip"
+      MINIMAL_INSTALLED+=(curl wget git vim htop ca-certificates gnupg lsb-release rsync unzip)
+      ;;
+    *) warn "Unsupported distro for minimal stage." ;;
+  esac
+}
+
+install_full_packages() {
+  line
+  log "Stage 4: Install full packages"
+
+  if [[ "$RUN_FULL" != "1" ]]; then
+    warn "Full stage disabled (RUN_FULL=0)."
+    return 0
+  fi
+
+  case "$PKG_MANAGER" in
+    apt)
+      run_cmd "sudo apt install -y build-essential net-tools zip tmux tree jq python3 python3-pip python3-venv python3-dev gcc make cmake pkg-config"
+      FULL_INSTALLED+=(build-essential net-tools zip tmux tree jq python3 python3-pip python3-venv python3-dev gcc make cmake pkg-config)
       ;;
     dnf)
       run_cmd "sudo dnf groupinstall -y 'Development Tools' || true"
-      run_cmd "sudo dnf install -y net-tools unzip zip tmux tree jq python3 python3-pip"
+      run_cmd "sudo dnf install -y net-tools zip tmux tree jq python3 python3-pip python3-devel gcc make cmake pkgconf-pkg-config"
+      FULL_INSTALLED+=(Development-Tools net-tools zip tmux tree jq python3 python3-pip python3-devel gcc make cmake pkgconf-pkg-config)
       ;;
     pacman)
-      run_cmd "sudo pacman -S --noconfirm base-devel net-tools unzip zip tmux tree jq python python-pip"
+      run_cmd "sudo pacman -S --noconfirm base-devel net-tools zip tmux tree jq python python-pip cmake pkgconf"
+      FULL_INSTALLED+=(base-devel net-tools zip tmux tree jq python python-pip cmake pkgconf)
       ;;
-    *) warn "Unsupported distro for package installation." ;;
+    *) warn "Unsupported distro for full stage." ;;
   esac
 }
 
 show_system_info() {
   line
-  log "Stage 5: System specs, memory, disk"
+  log "Stage 5: System information"
 
-  if ! ask_yes_no "Show system specs/space information now?" "y"; then
-    log "Skipped system info stage."
+  if [[ "$SHOW_SYSTEM_INFO" != "1" ]]; then
+    warn "System info stage disabled (SHOW_SYSTEM_INFO=0)."
     return 0
   fi
 
   echo "Hostname: $(hostname)"
   echo "Kernel:   $(uname -r)"
-  echo "CPU:"
+  echo "CPU (top lines):"
   lscpu | sed -n '1,8p'
   echo
   echo "Memory:"
@@ -213,6 +229,14 @@ show_system_info() {
   echo
   echo "Disk:"
   df -h
+}
+
+print_summary() {
+  line
+  log "Succeeded install summary"
+  echo "Update actions: ${UPDATED_ACTIONS[*]:-none}"
+  echo "Minimal packages: ${MINIMAL_INSTALLED[*]:-none}"
+  echo "Full packages: ${FULL_INSTALLED[*]:-none}"
 }
 
 main() {
@@ -224,23 +248,32 @@ main() {
   if [[ "$PIPELINE_MODE" == "1" ]]; then
     SKIP_PROMPTS=1
     DRY_RUN=1
-    log "PIPELINE_MODE=1 detected -> SKIP_PROMPTS=1 and DRY_RUN=1 enabled"
+    SKIP_INTERNET_CHECK=1
+    RUN_FULL=0
+    SHOW_SYSTEM_INFO=0
+    log "PIPELINE_MODE=1 -> prompts skipped, dry-run enabled, full stage off"
   fi
 
   log "Starting $SCRIPT_NAME"
-
-  if ! check_connection; then
-    exit 1
-  fi
-
   detect_linux
+
+  check_connection
+  checkpoint_continue "Ping passed. Continue to update stage?" "y" || exit 0
+
   run_updates
+  checkpoint_continue "Update stage completed. Continue to minimal packages?" "y" || exit 0
+
   install_minimal_packages
+  checkpoint_continue "Minimal stage completed. Continue to full packages?" "y" || exit 0
+
   install_full_packages
+  checkpoint_continue "Full stage completed. Continue to final output?" "y" || exit 0
+
   show_system_info
+  print_summary
 
   line
-  log "Automation finished."
+  log "Automation finished successfully."
 }
 
 main "$@"
