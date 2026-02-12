@@ -33,6 +33,22 @@ So flow is: run stage -> ask to continue -> next stage.
 - RHEL/Fedora: `Development Tools` + `net-tools zip tmux tree jq python3 python3-pip python3-devel gcc make cmake pkgconf-pkg-config`
 - Arch: `base-devel net-tools zip tmux tree jq python python-pip cmake pkgconf`
 
+## Quick start (how to use)
+1. Go to project folder.
+2. Give execute permission:
+   ```bash
+   chmod +x beginner_linux_automation.sh
+   ```
+3. Run script:
+   ```bash
+   ./beginner_linux_automation.sh
+   ```
+
+Optional safe test (no real install):
+```bash
+SKIP_INTERNET_CHECK=1 SKIP_PROMPTS=1 DRY_RUN=1 ./beginner_linux_automation.sh
+```
+
 ## Run
 ```bash
 chmod +x beginner_linux_automation.sh
