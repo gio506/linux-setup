@@ -2,6 +2,10 @@
 
 Simple script for junior DevOps.
 
+## Quick answer to your questions
+- **On local computer**: script asks `y/n` at each checkpoint (no auto default in interactive mode).
+- **In pipeline**: yes, you can use defaults only in pipeline with non-interactive mode.
+
 ## What this script does (easy view)
 1. Check internet with ping.
 2. Detect Linux distro + package manager.
@@ -9,18 +13,41 @@ Simple script for junior DevOps.
 4. Install minimal packages.
 5. Install full packages (includes Python/dev tools).
 6. Show system info.
-7. Print short success summary (what was updated/installed).
+7. Print short success summary (updated + installed list).
 
 If ping fails, script stops.
 
 ## Where it asks `y/n`
-Prompts now appear **after each completed stage**:
+Prompts appear **after each completed stage**:
 - After ping test passed.
 - After update stage.
 - After minimal package stage.
 - After full package stage.
 
-So flow is: run stage -> ask to continue -> next stage.
+Flow: run stage -> ask continue -> next stage.
+
+## Quick start (how to use)
+1. Give execute permission:
+   ```bash
+   chmod +x beginner_linux_automation.sh
+   ```
+2. Run script:
+   ```bash
+   ./beginner_linux_automation.sh
+   ```
+
+## Pipeline / CI (default only in pipeline)
+GitHub Actions file: `.github/workflows/bash-script-check.yml`
+
+Recommended pipeline command:
+```bash
+SKIP_PROMPTS=1 NON_INTERACTIVE_DEFAULT=y DRY_RUN=1 SKIP_INTERNET_CHECK=1 ./beginner_linux_automation.sh
+```
+
+Or simple mode:
+```bash
+PIPELINE_MODE=1 ./beginner_linux_automation.sh
+```
 
 ## Packages
 ### Minimal package stage
@@ -33,48 +60,11 @@ So flow is: run stage -> ask to continue -> next stage.
 - RHEL/Fedora: `Development Tools` + `net-tools zip tmux tree jq python3 python3-pip python3-devel gcc make cmake pkgconf-pkg-config`
 - Arch: `base-devel net-tools zip tmux tree jq python python-pip cmake pkgconf`
 
-## Quick start (how to use)
-1. Go to project folder.
-2. Give execute permission:
-   ```bash
-   chmod +x beginner_linux_automation.sh
-   ```
-3. Run script:
-   ```bash
-   ./beginner_linux_automation.sh
-   ```
-
-Optional safe test (no real install):
-```bash
-SKIP_INTERNET_CHECK=1 SKIP_PROMPTS=1 DRY_RUN=1 ./beginner_linux_automation.sh
-```
-
-## Run
-```bash
-chmod +x beginner_linux_automation.sh
-./beginner_linux_automation.sh
-```
-
-## Pipeline / CI
-GitHub Actions file: `.github/workflows/bash-script-check.yml`
-
-Pipeline has separate jobs:
-1. syntax check
-2. help output check
-3. pipeline smoke run
-4. stage-toggle checks
-
-## Useful env options
+## Useful options
 - `AUTO_YES=1` -> always continue at checkpoints.
-- `SKIP_PROMPTS=1` -> no questions, use defaults.
-- `DRY_RUN=1` -> print commands only, do not execute.
-- `PIPELINE_MODE=1` -> CI-safe: skip prompts + dry-run + skip full/system info.
-- `RUN_UPDATE=0` -> disable update stage.
-- `RUN_MINIMAL=0` -> disable minimal stage.
-- `RUN_FULL=0` -> disable full stage.
-- `SHOW_SYSTEM_INFO=0` -> disable final system info.
+- `SKIP_PROMPTS=1` -> no questions (non-interactive).
+- `NON_INTERACTIVE_DEFAULT=y|n` -> default answer only for non-interactive mode.
+- `DRY_RUN=1` -> print commands only.
+- `PIPELINE_MODE=1` -> CI-safe preset.
+- `RUN_UPDATE=0` / `RUN_MINIMAL=0` / `RUN_FULL=0` / `SHOW_SYSTEM_INFO=0` -> stage toggles.
 - `SKIP_INTERNET_CHECK=1` -> skip ping stage (CI use).
-
-## Short meaning
-- **Update** = refresh + upgrade existing software.
-- **Install** = add software packages that may be missing.

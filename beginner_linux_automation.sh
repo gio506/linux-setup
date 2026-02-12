@@ -11,7 +11,7 @@ set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
 AUTO_YES="${AUTO_YES:-0}"               # AUTO_YES=1 -> answer yes on all checkpoints
-SKIP_PROMPTS="${SKIP_PROMPTS:-0}"       # SKIP_PROMPTS=1 -> no checkpoints, use defaults
+SKIP_PROMPTS="${SKIP_PROMPTS:-0}"       # SKIP_PROMPTS=1 -> no checkpoints, use NON_INTERACTIVE_DEFAULT
 DRY_RUN="${DRY_RUN:-0}"                 # DRY_RUN=1 -> print commands only
 PIPELINE_MODE="${PIPELINE_MODE:-0}"     # PIPELINE_MODE=1 -> CI-safe defaults
 SKIP_INTERNET_CHECK="${SKIP_INTERNET_CHECK:-0}"
@@ -22,6 +22,7 @@ RUN_UPDATE="${RUN_UPDATE:-1}"
 RUN_MINIMAL="${RUN_MINIMAL:-1}"
 RUN_FULL="${RUN_FULL:-1}"
 SHOW_SYSTEM_INFO="${SHOW_SYSTEM_INFO:-1}"
+NON_INTERACTIVE_DEFAULT="${NON_INTERACTIVE_DEFAULT:-y}" # used only with SKIP_PROMPTS=1
 
 # Summary arrays
 UPDATED_ACTIONS=()
@@ -35,7 +36,7 @@ Usage:
 
 Main environment variables:
   AUTO_YES=1            Answer yes on all checkpoints
-  SKIP_PROMPTS=1        Skip checkpoints and use default answer
+  SKIP_PROMPTS=1        Skip checkpoints and use NON_INTERACTIVE_DEFAULT
   DRY_RUN=1             Print commands only
   PIPELINE_MODE=1       Safe CI mode (SKIP_PROMPTS=1 + DRY_RUN=1 + skip full stage)
   SKIP_INTERNET_CHECK=1 Skip ping stage in CI
@@ -45,6 +46,7 @@ Optional stage toggles:
   RUN_MINIMAL=0         Skip minimal packages stage
   RUN_FULL=0            Skip full packages stage
   SHOW_SYSTEM_INFO=0    Skip system information stage
+  NON_INTERACTIVE_DEFAULT=y|n  Default answer in non-interactive mode
 USAGE
 }
 
@@ -62,9 +64,8 @@ run_cmd() {
 }
 
 checkpoint_continue() {
-  # checkpoint_continue "message" "default(y/n)"
+  # checkpoint_continue "message"
   local question="$1"
-  local default="${2:-y}"
   local answer=""
 
   if [[ "$AUTO_YES" == "1" ]]; then
@@ -73,18 +74,17 @@ checkpoint_continue() {
   fi
 
   if [[ "$SKIP_PROMPTS" == "1" ]]; then
-    log "$question [prompts skipped -> default=$default]"
-    [[ "$default" == "y" ]]
+    log "$question [non-interactive -> default=$NON_INTERACTIVE_DEFAULT]"
+    [[ "${NON_INTERACTIVE_DEFAULT,,}" == "y" || "${NON_INTERACTIVE_DEFAULT,,}" == "yes" ]]
     return
   fi
 
   while true; do
-    read -r -p "$question [y/n] (default: $default): " answer
-    answer="${answer:-$default}"
+    read -r -p "$question [y/n]: " answer
     case "${answer,,}" in
       y|yes) return 0 ;;
       n|no) return 1 ;;
-      *) warn "Please type y or n." ;;
+      *) warn "Please type y or n (no default in interactive mode)." ;;
     esac
   done
 }
@@ -247,6 +247,7 @@ main() {
 
   if [[ "$PIPELINE_MODE" == "1" ]]; then
     SKIP_PROMPTS=1
+    NON_INTERACTIVE_DEFAULT=y
     DRY_RUN=1
     SKIP_INTERNET_CHECK=1
     RUN_FULL=0
@@ -258,16 +259,16 @@ main() {
   detect_linux
 
   check_connection
-  checkpoint_continue "Ping passed. Continue to update stage?" "y" || exit 0
+  checkpoint_continue "Ping passed. Continue to update stage?" || exit 0
 
   run_updates
-  checkpoint_continue "Update stage completed. Continue to minimal packages?" "y" || exit 0
+  checkpoint_continue "Update stage completed. Continue to minimal packages?" || exit 0
 
   install_minimal_packages
-  checkpoint_continue "Minimal stage completed. Continue to full packages?" "y" || exit 0
+  checkpoint_continue "Minimal stage completed. Continue to full packages?" || exit 0
 
   install_full_packages
-  checkpoint_continue "Full stage completed. Continue to final output?" "y" || exit 0
+  checkpoint_continue "Full stage completed. Continue to final output?" || exit 0
 
   show_system_info
   print_summary
